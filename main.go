@@ -36,7 +36,7 @@ func main() {
 	mux.HandleFunc("/lyrics", lyricsEndpoint)
 	mux.HandleFunc("/lucky", luckyEndpoint)
 	mux.HandleFunc("/prompt", promptEndpoint)
-	mux.HandleFunc("/", luckyEndpoint)
+	mux.HandleFunc("/", promptEndpoint)
 
 	log.Fatal(http.ListenAndServe(":11407", mux))
 }
