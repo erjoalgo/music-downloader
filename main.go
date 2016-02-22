@@ -35,6 +35,7 @@ func main() {
 	mux.HandleFunc("/youtube", youtubeEndpoint)
 	mux.HandleFunc("/lyrics", lyricsEndpoint)
 	mux.HandleFunc("/lucky", luckyEndpoint)
+	mux.HandleFunc("/prompt", promptEndpoint)
 	mux.HandleFunc("/", luckyEndpoint)
 
 	log.Fatal(http.ListenAndServe(":11407", mux))
@@ -51,6 +52,28 @@ func lyricsEndpoint(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+func promptEndpoint(w http.ResponseWriter, req *http.Request) {
+	var html = `
+<HTML>
+<HEAD>
+<TITLE>Music downloader</TITLE>
+</HEAD>
+<BODY>
+<SCRIPT LANGUAGE="JAVASCRIPT" TYPE="TEXT/JAVASCRIPT">
+<!--
+query = window.prompt("Enter song search query", "bailando enrique");
+// window.location = encodeURI("/lucky?"+query);
+window.location = encodeURI("/lyrics?"+query);
+//-->
+</SCRIPT>
+</BODY>
+</HTML>
+
+	`
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(200)
+	fmt.Fprintf(w, html)
+}
 func luckyEndpoint(w http.ResponseWriter, req *http.Request) {
 	lyrics := req.URL.RawQuery
 	if videoList, err := listVideoUrls(lyrics); err != nil {
