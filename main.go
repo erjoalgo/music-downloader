@@ -80,8 +80,16 @@ func youtubeEndpoint(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func fetchYoutubeVideo(url string) ([]byte, error) {
-	return exec.Command("youtube-dl", "-t", "--extract-audio", "--audio-format=mp3", url).Output()
+func execCmdPipeStderr(cmd *exec.Cmd) (string, error) {
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	return out.String(), err
+}
+func fetchYoutubeVideo(url string) (string, error) {
+	// youtube-dl -t --extract-audio --audio-format=mp3 https://www.youtube.com/watch?v=NUsoVlDFqZg
+	return execCmdPipeStderr(exec.Command("youtube-dl", "-t", "--extract-audio", "--audio-format=mp3", url))
 }
 
 // "[download] Destination: Juan Luis Guerra - Que me des tu cariño-oIuzP4nZRv4.m4a"
@@ -92,7 +100,7 @@ var destRe = regexp.MustCompile("(?m)^[[]ffmpeg[]] Destination: (.*mp3)$")
 func fetchYoutubeVideoToMp3File(url string) (filePath string, err error) {
 	if out, err := fetchYoutubeVideo(url); err != nil {
 		return "", err
-	} else if matches := destRe.FindStringSubmatch(string(out)); matches == nil || len(matches) != 2 {
+	} else if matches := destRe.FindStringSubmatch(out); matches == nil || len(matches) != 2 {
 		log.Printf("matches: %#v", matches)
 		return "", fmt.Errorf("destination file filePath could not be parsed:\n%s", out)
 	} else {
@@ -125,16 +133,11 @@ func (v VideoInfo) FullUrl() string {
 var musicDowloaderListParser = regexp.MustCompile("(?m)^(.*)\t(.*)$")
 
 func listVideoUrls(query string) ([]VideoInfo, error) {
-	cmd := exec.Command("music_downloader.py", "-L", query)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	err := cmd.Run()
-	if err != nil {
-		log.Printf("out/err was: %s\n", out.String())
+	if out, err := execCmdPipeStderr(exec.Command("music_downloader.py", "-L", query)); err != nil {
+		log.Printf("out/err was: %s\n", out)
 		return nil, fmt.Errorf("error running music_downloader.py:\n%s\n%s\n", err, out)
 	} else {
-		results := musicDowloaderListParser.FindAllStringSubmatch(out.String(), -1)
+		results := musicDowloaderListParser.FindAllStringSubmatch(out, -1)
 		infos := make([]VideoInfo, len(results))
 		for i, line := range results {
 			infos[i] = VideoInfo{
