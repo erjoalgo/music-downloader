@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -99,7 +100,17 @@ func youtubeEndpoint(w http.ResponseWriter, req *http.Request) {
 		log.Printf("serving mp3 file: %s", mp3File)
 		// Content type: audio/mpeg
 		// http://stackoverflow.com/questions/12017694/content-type-for-mp3-download-response
-		http.ServeFile(w, req, mp3File)
+		// http.ServeFile(w, req, mp3File)
+		// http.ServeFile(w, req, mp3File)
+		if b, err := ioutil.ReadFile(mp3File); err != nil {
+			http.Error(w, fmt.Sprintf("error opening file:\n%s", err), 500)
+		} else {
+			w.Header().Set("Content-Type", "audio/mpeg")
+			w.WriteHeader(200)
+			if _, err := bytes.NewBuffer(b).WriteTo(w); err != nil {
+				http.Error(w, fmt.Sprintf("error writing file:\n%s", err), 500)
+			}
+		}
 	}
 }
 
