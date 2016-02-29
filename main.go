@@ -29,14 +29,14 @@ func main() {
 
 	var authenticator auth.AuthenticatorInterface
 	if htpasswdFn != ""	{
-		fmt.Printf( "using htpassswd fn: %s \n", htpasswdFn )
+		log.Printf( "using htpassswd fn: %s \n", htpasswdFn )
 		pwd, _ := os.Getwd()
 		htpasswdFn = path.Join(pwd, htpasswdFn)
 		Secret := auth.HtpasswdFileProvider(htpasswdFn)
 		authenticator = auth.NewBasicAuthenticator("localhost", Secret)
 	}
 
-	fmt.Printf( "using top dir: %s \n", musicTopDir)
+	log.Printf( "using top dir: %s \n", musicTopDir)
 	os.Chdir(musicTopDir)
 
 
