@@ -19,6 +19,7 @@ import (
 
 
 func main() {
+	
 	var htpasswdFn string
 	var musicTopDir string
 	var address string
@@ -113,7 +114,7 @@ func luckyEndpoint(w http.ResponseWriter, req *http.Request) {
 	}else if videoInfos, err := extractTitlesUrlsImages(html); err != nil	{
 		http.Error(w, fmt.Sprintf("error extracting videos from %s, %s \n", _url, err), 500)
 	}else {
-		url := videoInfos[0].YTWatchUrl
+		url := videoInfos[0].YTWatchUrl.String()
 		req.URL.RawQuery = url
 		log.Printf("lucky url was: %s", url)
 		youtubeEndpoint(w, req)
@@ -183,6 +184,10 @@ func extractTitlesUrlsImages(html []byte) ([]VideoInfo, error) {
 			if srcUrl, err := url.Parse(_url); err != nil {
 				return nil, fmt.Errorf("bad url inside html: %#v %s", node, err)
 			} else if thumbNode, err := node.Search("ancestor::li/div/div/div/a/div/span/img/@src"); err != nil	{
+				/*note: only the visible thumbs on the first browser page are valid links (~1-6),
+the rest are only activated when the user "scrolls down", which we can't easily emulate
+fall back to thumbnail img.youtube.com url approach*/
+				
 				return nil, fmt.Errorf("unable to get thumb for video. %s", err)
 			}else if thumbUrl, err := url.Parse(thumbNode[0].String()); err != nil	{
 				return nil, fmt.Errorf("bad thumb url. %s", err)
@@ -193,8 +198,8 @@ func extractTitlesUrlsImages(html []byte) ([]VideoInfo, error) {
 				thumbUrl.Scheme = "http"
 				srcs = append(srcs, VideoInfo{
 					Title: node.InnerHtml(),
-					YTWatchUrl: srcUrl.String(),
-					ThumbUrl: thumbUrl.String(), 
+					YTWatchUrl: srcUrl,
+					ThumbUrl: thumbUrl, 
 				})
 			}
 		}
@@ -232,32 +237,25 @@ func fetchYoutubeVideoToMp3File(url string) (filePath string, err error) {
 
 type VideoInfo struct {
 	Title      string
-	YTWatchUrl string //eg "watch?v=0IL0a3DgNtA"
-	ThumbUrl string
+	YTWatchUrl *url.URL
+	ThumbUrl *url.URL
 }
-
+func (v VideoInfo) ThumbUrlAuto ( i int ) 	string {
+	//i must be 0-3
+	// http://www.reelseo.com/youtube-thumbnail-image/
+	// http://img.youtube.com/vi/bQVoAWSP7k4/0.jpg
+	id := v.Id()
+	return fmt.Sprintf("http://img.youtube.com/vi/%s/%d.jpg", id, i)
+}
+func (v VideoInfo) Id (  ) string	{
+	return v.YTWatchUrl.Query()["v"][0]
+}
+	
+	
 // https://www.youtube.com/watch?v=0SkZxQZwFAM
-var youtubeURLPrefix = "https://www.youtube.com"
 
 
 var musicDowloaderListParser = regexp.MustCompile("(?m)^(.*)\t(.*)$")
-
-/*func listVideoUrls(query string) ([]VideoInfo, error) {
-	if out, err := execCmdPipeStderr(exec.Command("music_downloader.py", "-L", query)); err != nil {
-		log.Printf("out/err was: %s\n", out)
-		return nil, fmt.Errorf("error running music_downloader.py:\n%s\n%s\n", err, out)
-	} else {
-		results := musicDowloaderListParser.FindAllStringSubmatch(out, -1)
-		infos := make([]VideoInfo, len(results))
-		for i, line := range results {
-			infos[i] = VideoInfo{
-				Title:      line[1],
-				YTWatchUrl: line[2],
-			}
-		}
-		return infos, nil
-	}
-}*/
 
 func queryToYtUrl ( query string ) string	{
 	// return "https://www.youtube.com/results?search_query="+query//TODO
@@ -287,11 +285,16 @@ func videoInfoListToHtml(videos []VideoInfo) string {
 	var html = `<table class="fixed">`
 	html += "\n"
 	for _, video := range videos {
-		html += fmt.Sprintf(
-			`<tr><td><a href="%s">%s</a></td><td><img src="%s"></td></tr>`,
-			localFetchEndpoint(video.YTWatchUrl),
+		_url := localFetchEndpoint(video.YTWatchUrl.String())
+		html += fmt.Sprintf(`<tr>
+<td><a href="%s"><img src="%s"></a></td>
+<td><a href="%s">%s</a></td>
+</tr>`,
+			_url, 
+			"/proxy?"+video.ThumbUrlAuto(0),
+			_url, 
 			video.Title,
-			"/proxy?"+video.ThumbUrl, 
+			// "/proxy?"+video.ThumbUrl.String(), 
 		)
 		html += "\n"
 	}
@@ -321,7 +324,6 @@ func proxyEndpoint(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, fmt.Sprintf("error fetching url %s:\n%s", _url, err), 400)
 	} else {
 		w.WriteHeader(200)
-
 		bodyReq, _ := ioutil.ReadAll(response.Body)
 		bytes.NewBuffer(bodyReq).WriteTo(w)
 		//this is actually slower
