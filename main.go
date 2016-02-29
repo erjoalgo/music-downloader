@@ -123,7 +123,6 @@ func luckyEndpoint(w http.ResponseWriter, req *http.Request) {
 func youtubeEndpoint(w http.ResponseWriter, req *http.Request) {
 	url := req.URL.RawQuery
 	_ = url
-	// var err error
 	if mp3File, err := fetchYoutubeVideoToMp3File(url); err != nil {
 		// if mp3File := "/home/ealfonso/repos/music-downloader/Juan Luis Guerra - Que me des tu cariño-oIuzP4nZRv4.mp3"; err != nil {
 		http.Error(w, fmt.Sprintf("error fetching file:\n%s", err), 500)
@@ -185,15 +184,17 @@ func extractTitlesUrlsImages(html []byte) ([]VideoInfo, error) {
 				return nil, fmt.Errorf("bad url inside html: %#v %s", node, err)
 			} else if thumbNode, err := node.Search("ancestor::li/div/div/div/a/div/span/img/@src"); err != nil	{
 				return nil, fmt.Errorf("unable to get thumb for video. %s", err)
+			}else if thumbUrl, err := url.Parse(thumbNode[0].String()); err != nil	{
+				return nil, fmt.Errorf("bad thumb url. %s", err)
 			}else 	{
-				// fmt.Printf( "class: %#v\n", node.Attributes()["class"].String() )
 				srcUrl.Host = "youtube.com"
 				srcUrl.Scheme = "http"
-				
+
+				thumbUrl.Scheme = "http"
 				srcs = append(srcs, VideoInfo{
 					Title: node.InnerHtml(),
 					YTWatchUrl: srcUrl.String(),
-					ThumbUrl: thumbNode[0].String(), 
+					ThumbUrl: thumbUrl.String(), 
 				})
 			}
 		}
@@ -290,7 +291,7 @@ func videoInfoListToHtml(videos []VideoInfo) string {
 			`<tr><td><a href="%s">%s</a></td><td><img src="%s"></td></tr>`,
 			localFetchEndpoint(video.YTWatchUrl),
 			video.Title,
-			video.ThumbUrl, 
+			"/proxy?"+video.ThumbUrl, 
 		)
 		html += "\n"
 	}
