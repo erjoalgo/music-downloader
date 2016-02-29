@@ -21,8 +21,10 @@ import (
 func main() {
 	var htpasswdFn string
 	var musicTopDir string
+	var port string
 	flag.StringVar(&htpasswdFn, "htpasswd", "", "htpasswd file for basic auth")
 	flag.StringVar(&musicTopDir, "top", "/tmp", "directory where downloads will go")
+	flag.StringVar(&port, "port", "11407", "port where to listen")
 	flag.Parse()
 
 	var authenticator auth.AuthenticatorInterface
@@ -62,8 +64,9 @@ func main() {
 	mux.HandleFunc("/proxy", proxyEndpoint)
 	mux.HandleFunc("/", promptEndpoint)
 
-
-	log.Fatal(http.ListenAndServe(":11407", mux))
+	address := ":"+port
+	log.Printf("listening on %s", address)
+	log.Fatal(http.ListenAndServe(address, mux))
 }
 
 func lyricsEndpoint(w http.ResponseWriter, req *http.Request) {
