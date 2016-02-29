@@ -9,22 +9,39 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"os/exec"
 	"path"
+	"os/exec"
 	"regexp"
-	"github.com/moovweb/gokogiri"	
+	"github.com/moovweb/gokogiri"
+	"github.com/abbot/go-http-auth"
+	"flag"
 )
 
 var musicTopDir = "/tmp" //TODO flags
 
 func main() {
+	var htpasswdFn string
+	flag.StringVar(&htpasswdFn, "htpasswd", htpasswdFn, "htpasswd file for basic auth")
+
+	var authenticator auth.AuthenticatorInterface
+	flag.Parse()
+
+	if htpasswdFn != ""	{
+		fmt.Printf( "using htpassswd fn: %s \n", htpasswdFn )
+		pwd, _ := os.Getwd()
+		htpasswdFn = path.Join(pwd, htpasswdFn)
+		Secret := auth.HtpasswdFileProvider(htpasswdFn)
+		authenticator = auth.NewBasicAuthenticator("localhost", Secret)
+	}
+
 	os.Chdir(musicTopDir)
+
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ok", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(200)
 		fmt.Fprintf(w, "OK")
-
 	})
 
 	mux.HandleFunc("/echo", func(w http.ResponseWriter, req *http.Request) {
@@ -33,12 +50,17 @@ func main() {
 		fmt.Fprintf(w, "%#v", req.URL)
 	})
 
-	mux.HandleFunc("/youtube", youtubeEndpoint)
+	if authenticator != nil	{
+		mux.HandleFunc("/youtube", auth.JustCheck(authenticator, youtubeEndpoint))
+	}else 	{
+		mux.HandleFunc("/youtube", youtubeEndpoint)
+	}
 	mux.HandleFunc("/lyrics", lyricsEndpoint)
 	mux.HandleFunc("/lucky", luckyEndpoint)
 	mux.HandleFunc("/prompt", promptEndpoint)
 	mux.HandleFunc("/proxy", proxyEndpoint)
 	mux.HandleFunc("/", promptEndpoint)
+
 
 	log.Fatal(http.ListenAndServe(":11407", mux))
 }
@@ -233,7 +255,13 @@ var musicDowloaderListParser = regexp.MustCompile("(?m)^(.*)\t(.*)$")
 }*/
 
 func queryToYtUrl ( query string ) string	{
-	return "https://www.youtube.com/results?search_query="+query//TODO
+	// return "https://www.youtube.com/results?search_query="+query//TODO
+	base := "https://www.youtube.com/results?search_query="
+	// fmt.Printf( "query: %s\n", query )
+	// encoded := strings.Join(strings.Split(" ", query), "+")
+	// _url := base+encoded
+	// fmt.Printf( "%s\n", _url )
+	return base+query
 }
 
 func videoInfoListToHtml(videos []VideoInfo) string {
