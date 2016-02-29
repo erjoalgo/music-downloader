@@ -24,7 +24,7 @@ func main() {
 	var address string
 	flag.StringVar(&htpasswdFn, "htpasswd", "", "htpasswd file for basic auth")
 	flag.StringVar(&musicTopDir, "top", "/tmp", "directory where downloads will go")
-	flag.StringVar(&address, "address", "11407", "address where to listen")
+	flag.StringVar(&address, "address", ":11407", "address where to listen")
 	flag.Parse()
 
 	var authenticator auth.AuthenticatorInterface
