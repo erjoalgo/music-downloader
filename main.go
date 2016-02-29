@@ -17,15 +17,15 @@ import (
 	"flag"
 )
 
-var musicTopDir = "/tmp" //TODO flags
 
 func main() {
 	var htpasswdFn string
-	flag.StringVar(&htpasswdFn, "htpasswd", htpasswdFn, "htpasswd file for basic auth")
-
-	var authenticator auth.AuthenticatorInterface
+	var musicTopDir string
+	flag.StringVar(&htpasswdFn, "htpasswd", "", "htpasswd file for basic auth")
+	flag.StringVar(&musicTopDir, "top", "/tmp", "directory where downloads will go")
 	flag.Parse()
 
+	var authenticator auth.AuthenticatorInterface
 	if htpasswdFn != ""	{
 		fmt.Printf( "using htpassswd fn: %s \n", htpasswdFn )
 		pwd, _ := os.Getwd()
@@ -34,6 +34,7 @@ func main() {
 		authenticator = auth.NewBasicAuthenticator("localhost", Secret)
 	}
 
+	fmt.Printf( "using top dir: %s \n", musicTopDir)
 	os.Chdir(musicTopDir)
 
 
@@ -211,7 +212,8 @@ func fetchYoutubeVideoToMp3File(url string) (filePath string, err error) {
 		log.Printf("matches: %#v", matches)
 		return "", fmt.Errorf("destination file filePath could not be parsed:\n%s", out)
 	} else {
-		filePath = path.Join(musicTopDir, matches[1])
+		// filePath = path.Join(musicTopDir, matches[1])
+		filePath := matches[1]
 		if exists, err := exists(filePath); err != nil {
 			return "", fmt.Errorf("internal error: %s ", err)
 		} else if !exists {
