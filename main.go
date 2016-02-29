@@ -1,25 +1,25 @@
 package main
 
 import (
+	"strings"
 	"bytes"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
 	"regexp"
+	"github.com/moovweb/gokogiri"	
 )
 
 var musicTopDir = "/tmp" //TODO flags
 
 func main() {
-	// log.Fatal(destRe.FindStringSubmatch("[download] Destination: Juan Luis Guerra - Que me des tu cariño-oIuzP4nZRv4.m4a"))
 	os.Chdir(musicTopDir)
 	mux := http.NewServeMux()
-	// mux.Handle("/api/", apiHandler{})
-
 	mux.HandleFunc("/ok", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(200)
@@ -37,19 +37,24 @@ func main() {
 	mux.HandleFunc("/lyrics", lyricsEndpoint)
 	mux.HandleFunc("/lucky", luckyEndpoint)
 	mux.HandleFunc("/prompt", promptEndpoint)
+	mux.HandleFunc("/proxy", proxyEndpoint)
 	mux.HandleFunc("/", promptEndpoint)
 
 	log.Fatal(http.ListenAndServe(":11407", mux))
 }
 
 func lyricsEndpoint(w http.ResponseWriter, req *http.Request) {
-	lyrics := req.URL.RawQuery
-	if videoList, err := listVideoUrls(lyrics); err != nil {
-		http.Error(w, fmt.Sprintf("error fetching video list:\n%s", err), 500)
-	} else {
+	query := req.URL.RawQuery//the lyrics
+	_url := queryToYtUrl(query)
+	if html, err := downloadURL(_url); err != nil	{
+		http.Error(w, fmt.Sprintf("error downloading %s, %s \n", _url, err), 500)
+	}else if videoInfos, err := extractTitlesUrlsImages(html); err != nil	{
+		http.Error(w, fmt.Sprintf("error extracting videos from %s, %s \n", _url, err), 500)
+	}else 	{
+		html := videoInfoListToHtml(videoInfos)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(200)
-		fmt.Fprintf(w, videoInfoListToHtml(videoList))
+		fmt.Fprint(w, html)
 	}
 }
 
@@ -76,13 +81,14 @@ window.location = encodeURI("/lyrics?"+query);
 	fmt.Fprintf(w, html)
 }
 func luckyEndpoint(w http.ResponseWriter, req *http.Request) {
-	lyrics := req.URL.RawQuery
-	if videoList, err := listVideoUrls(lyrics); err != nil {
-		http.Error(w, fmt.Sprintf("error fetching video list:\n%s", err), 500)
-	} else if len(videoList) == 0 {
-		http.Error(w, fmt.Sprintf("no videos found for query: %s", lyrics), 400)
-	} else {
-		url := videoList[0].FullUrl()
+	query := req.URL.RawQuery//query
+	_url := queryToYtUrl(query)
+	if html, err := downloadURL(_url); err != nil	{
+		http.Error(w, fmt.Sprintf("error downloading %s, %s \n", _url, err), 500)
+	}else if videoInfos, err := extractTitlesUrlsImages(html); err != nil	{
+		http.Error(w, fmt.Sprintf("error extracting videos from %s, %s \n", _url, err), 500)
+	}else {
+		url := videoInfos[0].FullUrl()
 		req.URL.RawQuery = url
 		log.Printf("lucky url was: %s", url)
 		youtubeEndpoint(w, req)
@@ -113,8 +119,8 @@ func youtubeEndpoint(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 }
-
 func execCmdPipeStderr(cmd *exec.Cmd) (string, error) {
+	// fmt.Printf( "running cmd: %s \n", cmd )
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -124,6 +130,56 @@ func execCmdPipeStderr(cmd *exec.Cmd) (string, error) {
 func fetchYoutubeVideo(url string) (string, error) {
 	// youtube-dl -t --extract-audio --audio-format=mp3 https://www.youtube.com/watch?v=NUsoVlDFqZg
 	return execCmdPipeStderr(exec.Command("youtube-dl", "-t", "--extract-audio", "--audio-format=mp3", url))
+}
+
+func downloadURL ( _url string) ([]byte, error)	{
+	if _, err := url.Parse(_url); err != nil {
+		return nil, fmt.Errorf("bad url %s: %s", _url, err)
+	} else if response, err := http.Get(_url); err != nil {
+		return nil, fmt.Errorf("open problem: %s", err)
+	} else if html, err := ioutil.ReadAll(response.Body); err != nil {
+		return nil, fmt.Errorf("read problem: %s", err)
+	} else 	{
+		return html, nil
+	}
+}
+
+
+func extractTitlesUrlsImages(html []byte) ([]VideoInfo, error) {
+	// imgXpath := `//a[@class="yt-uix-tile-link"]`
+	imgXpath := `//a`
+	if doc, err := gokogiri.ParseHtml(html); err != nil {
+		return nil, fmt.Errorf("parse problem: %s", err)
+	} else if imgs, err := doc.Search(imgXpath); err != nil {
+		return nil, fmt.Errorf("xpath problem: %s", err)
+	} else {
+		srcs := make([]VideoInfo, 0, 30)//usually 20
+		for _, node := range imgs {
+			if class := node.Attributes()["class"]; class == nil	{
+				continue
+			}else if !strings.Contains(class.String(), "yt-uix-tile-link")	{
+				continue
+			}else if _url := node.Attributes()["href"].String(); !strings.HasPrefix(_url, "/watch?v="){
+				continue
+			}else if srcUrl, err := url.Parse(_url); err != nil {
+				return nil, fmt.Errorf("bad url inside html: %#v %s", node, err)
+			} else if thumbNode, err := node.Search("ancestor::li/div/div/div/a/div/span/img/@src"); err != nil	{
+				return nil, fmt.Errorf("unable to get thumb for video. %s", err)
+			}else 	{
+				// fmt.Printf( "class: %#v\n", node.Attributes()["class"].String() )
+				srcUrl.Host = "youtube.com"
+				srcUrl.Scheme = "http"
+				
+				srcs = append(srcs, VideoInfo{
+					Title: node.InnerHtml(),
+					YTWatchUrl: srcUrl.String(),
+					ThumbUrl: thumbNode[0].String(), 
+				})
+			}
+		}
+		// imgXpath := `//div[@class="yt-thumb video-thumb"]/span/img`
+		return srcs, nil
+	}
 }
 
 // "[download] Destination: Juan Luis Guerra - Que me des tu cariño-oIuzP4nZRv4.m4a"
@@ -155,18 +211,20 @@ func fetchYoutubeVideoToMp3File(url string) (filePath string, err error) {
 type VideoInfo struct {
 	Title      string
 	YTWatchUrl string //eg "watch?v=0IL0a3DgNtA"
+	ThumbUrl string
 }
 
 // https://www.youtube.com/watch?v=0SkZxQZwFAM
 var youtubeURLPrefix = "https://www.youtube.com"
 
 func (v VideoInfo) FullUrl() string {
-	return youtubeURLPrefix + v.YTWatchUrl
+	// return youtubeURLPrefix + v.YTWatchUrl
+	return v.YTWatchUrl
 }
 
 var musicDowloaderListParser = regexp.MustCompile("(?m)^(.*)\t(.*)$")
 
-func listVideoUrls(query string) ([]VideoInfo, error) {
+/*func listVideoUrls(query string) ([]VideoInfo, error) {
 	if out, err := execCmdPipeStderr(exec.Command("music_downloader.py", "-L", query)); err != nil {
 		log.Printf("out/err was: %s\n", out)
 		return nil, fmt.Errorf("error running music_downloader.py:\n%s\n%s\n", err, out)
@@ -181,6 +239,10 @@ func listVideoUrls(query string) ([]VideoInfo, error) {
 		}
 		return infos, nil
 	}
+}*/
+
+func queryToYtUrl ( query string ) string	{
+	return "https://www.youtube.com/results?search_query="+query//TODO
 }
 
 func videoInfoListToHtml(videos []VideoInfo) string {
@@ -198,16 +260,21 @@ func videoInfoListToHtml(videos []VideoInfo) string {
 	  </tr>
 	</table> `*/
 
-	var html = "<table>\n"
+	var html = `<table class="fixed">`
+	html += "\n"
 	for _, video := range videos {
 		html += fmt.Sprintf(
-			"<tr><td><a href=\"%s\">%s</a></td></tr>",
+			`<tr><td><a href="%s">%s</a></td><td><img src="%s"></td></tr>`,
 			localFetchEndpoint(video.FullUrl()),
-			video.Title)
+			video.Title,
+			video.ThumbUrl, 
+		)
+		html += "\n"
 	}
 	html += "</table>"
 	return html
 }
+
 func localFetchEndpoint(url string) string {
 	return "/youtube?" + url
 }
@@ -222,4 +289,18 @@ func exists(path string) (bool, error) {
 		return false, nil
 	}
 	return true, err
+}
+
+func proxyEndpoint(w http.ResponseWriter, req *http.Request) {
+	_url := req.URL.RawQuery
+	if response, err := http.Get(_url); err != nil {
+		http.Error(w, fmt.Sprintf("error fetching url %s:\n%s", _url, err), 400)
+	} else {
+		w.WriteHeader(200)
+
+		bodyReq, _ := ioutil.ReadAll(response.Body)
+		bytes.NewBuffer(bodyReq).WriteTo(w)
+		//this is actually slower
+		// io.Copy(w, response.Body)
+	}
 }
