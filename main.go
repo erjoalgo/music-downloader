@@ -1,7 +1,7 @@
 package main
 
 import (
-	"strings"
+	// "strings"
 	"bytes"
 	"fmt"
 	"io/ioutil"
@@ -88,7 +88,7 @@ func luckyEndpoint(w http.ResponseWriter, req *http.Request) {
 	}else if videoInfos, err := extractTitlesUrlsImages(html); err != nil	{
 		http.Error(w, fmt.Sprintf("error extracting videos from %s, %s \n", _url, err), 500)
 	}else {
-		url := videoInfos[0].FullUrl()
+		url := videoInfos[0].YTWatchUrl
 		req.URL.RawQuery = url
 		log.Printf("lucky url was: %s", url)
 		youtubeEndpoint(w, req)
@@ -146,8 +146,8 @@ func downloadURL ( _url string) ([]byte, error)	{
 
 
 func extractTitlesUrlsImages(html []byte) ([]VideoInfo, error) {
-	// imgXpath := `//a[@class="yt-uix-tile-link"]`
-	imgXpath := `//a`
+	// imgXpath := `//a[contains(@class, 'yt-uix-tile-link')]`
+	imgXpath := `//a[contains(@class, 'yt-uix-tile-link') and starts-with(@href,'/watch?v=')]`
 	if doc, err := gokogiri.ParseHtml(html); err != nil {
 		return nil, fmt.Errorf("parse problem: %s", err)
 	} else if imgs, err := doc.Search(imgXpath); err != nil {
@@ -155,13 +155,8 @@ func extractTitlesUrlsImages(html []byte) ([]VideoInfo, error) {
 	} else {
 		srcs := make([]VideoInfo, 0, 30)//usually 20
 		for _, node := range imgs {
-			if class := node.Attributes()["class"]; class == nil	{
-				continue
-			}else if !strings.Contains(class.String(), "yt-uix-tile-link")	{
-				continue
-			}else if _url := node.Attributes()["href"].String(); !strings.HasPrefix(_url, "/watch?v="){
-				continue
-			}else if srcUrl, err := url.Parse(_url); err != nil {
+			_url := node.Attributes()["href"].String()
+			if srcUrl, err := url.Parse(_url); err != nil {
 				return nil, fmt.Errorf("bad url inside html: %#v %s", node, err)
 			} else if thumbNode, err := node.Search("ancestor::li/div/div/div/a/div/span/img/@src"); err != nil	{
 				return nil, fmt.Errorf("unable to get thumb for video. %s", err)
@@ -217,10 +212,6 @@ type VideoInfo struct {
 // https://www.youtube.com/watch?v=0SkZxQZwFAM
 var youtubeURLPrefix = "https://www.youtube.com"
 
-func (v VideoInfo) FullUrl() string {
-	// return youtubeURLPrefix + v.YTWatchUrl
-	return v.YTWatchUrl
-}
 
 var musicDowloaderListParser = regexp.MustCompile("(?m)^(.*)\t(.*)$")
 
@@ -265,7 +256,7 @@ func videoInfoListToHtml(videos []VideoInfo) string {
 	for _, video := range videos {
 		html += fmt.Sprintf(
 			`<tr><td><a href="%s">%s</a></td><td><img src="%s"></td></tr>`,
-			localFetchEndpoint(video.FullUrl()),
+			localFetchEndpoint(video.YTWatchUrl),
 			video.Title,
 			video.ThumbUrl, 
 		)
