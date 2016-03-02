@@ -122,9 +122,10 @@ func luckyEndpoint(w http.ResponseWriter, req *http.Request) {
 }
 
 func youtubeEndpoint(w http.ResponseWriter, req *http.Request) {
-	url := req.URL.RawQuery
-	_ = url
-	if mp3File, err := fetchYoutubeVideoToMp3File(url); err != nil {
+	rawUrl := req.URL.RawQuery
+	if _url, err := url.Parse(rawUrl); err != nil	{
+		http.Error(w, fmt.Sprintf("error parsing url %s :%s", rawUrl, err), 500)
+	}else if mp3File, err := fetchYoutubeVideoToMp3File(_url); err != nil {
 		// if mp3File := "/home/ealfonso/repos/music-downloader/Juan Luis Guerra - Que me des tu cariño-oIuzP4nZRv4.mp3"; err != nil {
 		http.Error(w, fmt.Sprintf("error fetching file:\n%s", err), 500)
 	} else {
@@ -146,6 +147,7 @@ func youtubeEndpoint(w http.ResponseWriter, req *http.Request) {
 }
 func execCmdPipeStderr(cmd *exec.Cmd) (string, error) {
 	// fmt.Printf( "running cmd: %s \n", cmd )
+	//TODO this isn't workingft
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -154,7 +156,7 @@ func execCmdPipeStderr(cmd *exec.Cmd) (string, error) {
 }
 func fetchYoutubeVideo(url string) (string, error) {
 	// youtube-dl -t --extract-audio --audio-format=mp3 https://www.youtube.com/watch?v=NUsoVlDFqZg
-	return execCmdPipeStderr(exec.Command("youtube-dl", "-t", "--extract-audio", "--audio-format=mp3", url))
+	return execCmdPipeStderr(exec.Command("youtube-dl", "--id", "--extract-audio", "--audio-format=mp3", url))
 }
 
 func downloadURL ( _url string) ([]byte, error)	{
@@ -213,25 +215,22 @@ fall back to thumbnail img.youtube.com url approach*/
 
 var destRe = regexp.MustCompile("(?m)^[[]ffmpeg[]] Destination: (.*mp3)$")
 
-func fetchYoutubeVideoToMp3File(url string) (filePath string, err error) {
-	if out, err := fetchYoutubeVideo(url); err != nil {
-		return "", err
-	} else if matches := destRe.FindStringSubmatch(out); matches == nil || len(matches) != 2 {
-		log.Printf("matches: %#v", matches)
-		return "", fmt.Errorf("destination file filePath could not be parsed:\n%s", out)
+func fetchYoutubeVideoToMp3File(_url *url.URL) (filePath string, err error) {
+	if _id, err := youtubeUrlId(_url); err != nil	{
+		return "", fmt.Errorf("destination file filePath could not be parsed:\n%s", err)
+	} else if mp3Fn := _id+".mp3"; fileExists(mp3Fn)	{
+		log.Printf( "cache hit for %s\n", mp3Fn )
+		return mp3Fn, nil
+	} else if out, err := fetchYoutubeVideo(_url.String()); err != nil {
+		// return "", out+"\n"+err
+		return "", fmt.Errorf("out: out\nerr: %s", out, err)
+	} else if !fileExists(mp3Fn) {
+		log.Printf("mp3 file was not created at: %s", mp3Fn)
+		cwd, _ := os.Getwd()
+		log.Printf("cwd: %s ", cwd)
+		return "", fmt.Errorf("mp3 file was not created at: %s", mp3Fn)
 	} else {
-		// filePath = path.Join(musicTopDir, matches[1])
-		filePath := matches[1]
-		if exists, err := exists(filePath); err != nil {
-			return "", fmt.Errorf("internal error: %s ", err)
-		} else if !exists {
-			log.Printf("mp3 file was not created at: %s", filePath)
-			cwd, _ := os.Getwd()
-			log.Printf("cwd: %s ", cwd)
-			return "", fmt.Errorf("mp3 file was not created at: %s", filePath)
-		} else {
-			return filePath, nil
-		}
+		return mp3Fn, nil
 	}
 }
 
@@ -248,7 +247,13 @@ func (v VideoInfo) ThumbUrlAuto ( i int ) 	string {
 	return fmt.Sprintf("http://img.youtube.com/vi/%s/%d.jpg", id, i)
 }
 func (v VideoInfo) Id (  ) string	{
-	return v.YTWatchUrl.Query()["v"][0]
+	id, _ := youtubeUrlId(v.YTWatchUrl);
+	return id
+}
+
+func youtubeUrlId ( url *url.URL ) (string, error)	{
+	//TODO errcheck
+	return url.Query()["v"][0], nil
 }
 	
 	
@@ -306,16 +311,18 @@ func localFetchEndpoint(url string) string {
 	return "/youtube?" + url
 }
 
-// exists returns whether the given file or directory exists or not
-func exists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
+func fileExists(path string) (bool) {
+	if _, err := os.Stat(path); err == nil	{
+		//file exists
+		return true
+	}else if os.IsNotExist(err)	{
+		//doesn't exist
+		return false
+	}else 	{
+		// ??
+		log.Fatal(err)
+		panic(err)
 	}
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	return true, err
 }
 
 func proxyEndpoint(w http.ResponseWriter, req *http.Request) {
