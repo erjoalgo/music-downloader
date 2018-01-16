@@ -31,8 +31,9 @@ func main() {
 	var authenticator auth.AuthenticatorInterface
 	if htpasswdFn != ""	{
 		log.Printf( "using htpassswd fn: %s \n", htpasswdFn )
-		pwd, _ := os.Getwd()
-		htpasswdFn = path.Join(pwd, htpasswdFn)
+		// what's the point of this
+		// pwd, _ := os.Getwd()
+		// htpasswdFn = path.Join(pwd, htpasswdFn)
 		Secret := auth.HtpasswdFileProvider(htpasswdFn)
 		authenticator = auth.NewBasicAuthenticator("localhost", Secret)
 	}
